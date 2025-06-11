@@ -9,16 +9,32 @@ require('dotenv').config();
 let page;
 let browser;
 
+// Start Puppeteer browser and open Twitch stream
 const startBrowser = async () => {
   browser = await puppeteer.launch({ headless: true });
   page = await browser.newPage();
 
+  // Load and sanitize cookies
   const cookiesPath = path.resolve(__dirname, 'cookie.json');
   const cookiesJson = await fs.readFile(cookiesPath, 'utf-8');
-  const cookies = JSON.parse(cookiesJson);
+  const rawCookies = JSON.parse(cookiesJson);
 
+  // Keep only Puppeteer-compatible fields
+  const sanitizedCookies = rawCookies.map(cookie => ({
+    name: cookie.name,
+    value: cookie.value,
+    domain: cookie.domain,
+    path: cookie.path || '/',
+    expires: cookie.expires,
+    httpOnly: cookie.httpOnly,
+    secure: cookie.secure,
+    sameSite: cookie.sameSite,
+  }));
+
+  // Navigate to Twitch stream
   await page.goto('https://twitch.tv/gaules', { waitUntil: 'networkidle0', timeout: 0 });
 
+  // Set localStorage values to avoid popups
   await page.evaluate(() => {
     localStorage.setItem('mature', 'true');
     localStorage.setItem('video-muted', '{"default":false}');
@@ -27,32 +43,35 @@ const startBrowser = async () => {
   });
 
   await page.setViewport({ width: 1280, height: 720 });
-  await page.setCookie(...cookies);
+  await page.setCookie(...sanitizedCookies);
   await page.reload({ waitUntil: ['networkidle2', 'domcontentloaded'] });
 
   console.log('✅ Twitch stream loaded.');
 };
 
+// Send screenshot to Discord webhook
 const sendToWebhook = async (screenshotPath) => {
-  const form = new FormData();
-  const imageBuffer = await fs.readFile(screenshotPath);
-
-  form.append('file', imageBuffer, {
-    filename: 'twitch_screenshot.png',
-    contentType: 'image/png',
-  });
-  form.append('content', '📸 Twitch screenshot sent via webhook');
-
   try {
+    const form = new FormData();
+    const imageBuffer = await fs.readFile(screenshotPath);
+
+    form.append('file', imageBuffer, {
+      filename: 'twitch_screenshot.png',
+      contentType: 'image/png',
+    });
+    form.append('content', '📸 Twitch screenshot sent via webhook');
+
     await axios.post(process.env.DISCORD_WEBHOOK, form, {
       headers: form.getHeaders(),
     });
+
     console.log('✅ Screenshot sent to Discord webhook.');
   } catch (err) {
     console.error('❌ Webhook failed:', err.message);
   }
 };
 
+// Create Express server with healthcheck and screenshot route
 const startExpressServer = () => {
   const app = express();
   const port = process.env.PORT || 7860;
@@ -72,10 +91,11 @@ const startExpressServer = () => {
   });
 
   app.listen(port, () => {
-    console.log(`🌐 Server running on http://localhost:${port}`);
+    console.log(`🌐 Server running at http://localhost:${port}`);
   });
 };
 
+// Initialize
 (async () => {
   await startBrowser();
   startExpressServer();
