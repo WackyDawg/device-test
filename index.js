@@ -2,18 +2,15 @@ const puppeteer = require('puppeteer');
 const fs = require('fs').promises;
 const path = require('path');
 const express = require('express');
-const { Client, GatewayIntentBits } = require('discord.js');
+const axios = require('axios');
+const FormData = require('form-data');
 require('dotenv').config();
 
 let page;
 let browser;
 
 const startBrowser = async () => {
-  browser = await puppeteer.launch({
-    headless: true,
-    // executablePath: './browser/chrome.exe' // Uncomment if using custom Chrome
-  });
-
+  browser = await puppeteer.launch({ headless: true });
   page = await browser.newPage();
 
   const cookiesPath = path.resolve(__dirname, 'cookie.json');
@@ -33,33 +30,27 @@ const startBrowser = async () => {
   await page.setCookie(...cookies);
   await page.reload({ waitUntil: ['networkidle2', 'domcontentloaded'] });
 
-  console.log("✅ Twitch stream loaded.");
+  console.log('✅ Twitch stream loaded.');
 };
 
-const startDiscordBot = () => {
-  const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+const sendToWebhook = async (screenshotPath) => {
+  const form = new FormData();
+  const imageBuffer = await fs.readFile(screenshotPath);
+
+  form.append('file', imageBuffer, {
+    filename: 'twitch_screenshot.png',
+    contentType: 'image/png',
   });
+  form.append('content', '📸 Twitch screenshot sent via webhook');
 
-  client.once('ready', () => {
-    console.log(`🤖 Logged in as ${client.user.tag}`);
-  });
-
-  client.on('messageCreate', async (message) => {
-    if (message.content === '!screenshot' && message.channel.id === process.env.DISCORD_CHANNEL_ID) {
-      if (!page) return message.reply('❌ Page not ready.');
-
-      const screenshotPath = path.resolve(__dirname, 'twitch_screenshot.png');
-      await page.screenshot({ path: screenshotPath });
-
-      await message.channel.send({
-        content: '📸 Screenshot taken!',
-        files: [screenshotPath]
-      });
-    }
-  });
-
-  client.login(process.env.DISCORD_TOKEN);
+  try {
+    await axios.post(process.env.DISCORD_WEBHOOK, form, {
+      headers: form.getHeaders(),
+    });
+    console.log('✅ Screenshot sent to Discord webhook.');
+  } catch (err) {
+    console.error('❌ Webhook failed:', err.message);
+  }
 };
 
 const startExpressServer = () => {
@@ -75,16 +66,17 @@ const startExpressServer = () => {
 
     const screenshotPath = path.resolve(__dirname, 'twitch_screenshot.png');
     await page.screenshot({ path: screenshotPath });
-    res.sendFile(screenshotPath);
+
+    await sendToWebhook(screenshotPath);
+    res.json({ message: '✅ Screenshot sent to Discord.' });
   });
 
   app.listen(port, () => {
-    console.log(`🌐 Express server listening at http://localhost:${port}`);
+    console.log(`🌐 Server running on http://localhost:${port}`);
   });
 };
 
 (async () => {
   await startBrowser();
-  startDiscordBot();
   startExpressServer();
 })();
