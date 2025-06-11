@@ -55,7 +55,7 @@ const sendToWebhook = async (screenshotPath) => {
 
 const startExpressServer = () => {
   const app = express();
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 7860;
 
   app.get('/health', (req, res) => {
     res.json({ status: 'ok', puppeteer: !!page });
