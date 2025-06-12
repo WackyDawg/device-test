@@ -6,7 +6,7 @@
       "path": "/",
       "expires": -1,
       "size": 49,
-      "httpOnly": false,
+      "httpOnly": false,  
       "secure": true,
       "session": true,
       "sameSite": "None",
